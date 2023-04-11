@@ -1,6 +1,7 @@
 import os, random, json, pickle, re
 import numpy as np
 import torch.utils.data
+import pdb
 
 
 class ArxivDataset(torch.utils.data.Dataset):
@@ -14,19 +15,6 @@ class ArxivDataset(torch.utils.data.Dataset):
         self.preprocess = preprocess
         self.sort=sort
 
-        # if self.sort:
-        #     self.data = []
-        #     for i in range(len(self.texts)):
-        #         type, title, story = self.texts[i]
-        #
-        #         title = type + ' <sep> ' + title.strip()
-        #         story = story.strip()
-        #         text_raw_dict = {'title': title, 'story': story}
-        #
-        #         text = self.preprocess(text_raw_dict)
-        #         self.data.append(text)
-        #     self.data.sort(key=lambda x: len(x[0]), reverse=True)
-
     def __len__(self):
         return len(self.texts)
 
@@ -38,7 +26,8 @@ class ArxivDataset(torch.utils.data.Dataset):
 
             title = type + ' <sep> ' + title.strip()
             story = story.strip()
+            
             text_raw_dict = {'title': title, 'story': story}
-
             text = self.preprocess(text_raw_dict)
+
             return text

@@ -2,24 +2,16 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import collections
 import json
-import logging
 import math
 import os
-
 import torch
 import torch.nn as nn
-from torch.nn import CrossEntropyLoss
-from torch.nn.parameter import Parameter
 import torch.nn.functional as F
-
 import copy
-
-from transformers.modeling_utils import PreTrainedModel, Conv1D, prune_conv1d_layer, SequenceSummary
+from transformers.modeling_utils import Conv1D
 from transformers.modeling_gpt2 import *
 from transformers.modeling_bert import gelu
-from transformers.configuration_gpt2 import GPT2Config
-from transformers.file_utils import add_start_docstrings
-
+import pdb
 
 ####################### auxiliary attention blocks #######################
 class Unmasked_Attention(Attention):
@@ -182,6 +174,7 @@ class Cond_Block(Block):
     def __init__(self, n_ctx, config, scale=False):
         super(Block, self).__init__()
         nx = config.n_embd
+
         self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         self.attn = Cond_Attention(nx, n_ctx, config, scale)
         self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
@@ -192,11 +185,9 @@ class Cond_Block(Block):
             self.ln_1(x), z, layer_past=layer_past, attention_mask=attention_mask, head_mask=head_mask
         )
         a = output_attn[0]  # output_attn: a, present, (attentions)
-
         x = x + a
         m = self.mlp(self.ln_2(x))
         x = x + m
-
         outputs = [x] + output_attn[1:]
         return outputs  # x, present, (attentions)
 
@@ -205,6 +196,8 @@ class Cond_Block(Block):
 class Encoder(GPT2Model):
     def __init__(self, config):
         super(GPT2Model, self).__init__(config)
+        # super().__init__(config)
+
         self.output_hidden_states = config.output_hidden_states
         self.output_attentions = config.output_attentions
         self.output_past = config.output_past
@@ -216,9 +209,7 @@ class Encoder(GPT2Model):
         # manually modify number of layers in encoder to accommodate GPU memory
         n = 6  # config.n_layer
         self.h = nn.ModuleList([Unmasked_Block(config.n_ctx, config, scale=True) for _ in range(n)])
-
         self.ln_f = nn.LayerNorm(config.n_embd, eps=config.layer_norm_epsilon)
-
         self.init_weights()
 
         # added code here
@@ -227,6 +218,7 @@ class Encoder(GPT2Model):
         nz = config.n_embd
         self.mean = Conv1D(nz, nx)
         self.logvar = Conv1D(nz, nx)
+
 
     def forward(
             self,
@@ -238,6 +230,7 @@ class Encoder(GPT2Model):
             head_mask=None,
             inputs_embeds=None,
     ):
+
         if input_ids is not None and inputs_embeds is not None:
             raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
         elif input_ids is not None:
@@ -298,17 +291,18 @@ class Encoder(GPT2Model):
             )  # switch to fload if need + fp16 compatibility
         else:
             head_mask = [None] * self.config.n_layer
-
+        
         if inputs_embeds is None:
             inputs_embeds = self.wte(input_ids)
+
         position_embeds = self.wpe(position_ids)
         if token_type_ids is not None:
             token_type_embeds = self.wte(token_type_ids)
         else:
             token_type_embeds = 0
         hidden_states = inputs_embeds + position_embeds + token_type_embeds
-        hidden_states = self.drop(hidden_states)
-
+        hidden_states = self.drop(hidden_states) # torch.Size([128, 177, 768])
+        
         output_shape = input_shape + (hidden_states.size(-1),)
 
         presents = ()
@@ -391,8 +385,8 @@ class Decoder(GPT2Model):
         else:
             self.h = nn.ModuleList([Block(config.n_ctx, config, scale=True) for _ in range(config.n_layer)])
         self.ln_f = nn.LayerNorm(config.n_embd, eps=config.layer_norm_epsilon)
-
         self.init_weights()
+
 
     def forward(
             self,
@@ -425,6 +419,7 @@ class Decoder(GPT2Model):
             past = [None] * len(self.h)
         else:
             past_length = past[0][0].size(-2)
+
         if position_ids is None:
             device = input_ids.device if input_ids is not None else inputs_embeds.device
             position_ids = torch.arange(past_length, input_shape[-1] + past_length, dtype=torch.long, device=device)
@@ -482,7 +477,6 @@ class Decoder(GPT2Model):
             hidden_states = hidden_states + input_proj
 
         hidden_states = self.drop(hidden_states)
-
         output_shape = input_shape + (hidden_states.size(-1),)
 
         # add code here
@@ -514,14 +508,13 @@ class Decoder(GPT2Model):
                 )
 
             hidden_states, present = outputs[:2]
+
             if self.output_past:
                 presents = presents + (present,)
-
             if self.output_attentions:
                 all_attentions.append(outputs[2])
 
         hidden_states = self.ln_f(hidden_states)
-
         hidden_states = hidden_states.view(*output_shape)
         # Add last hidden state
         if self.output_hidden_states:
@@ -531,14 +524,14 @@ class Decoder(GPT2Model):
         if self.output_past:
             outputs = outputs + (presents,)
         if self.output_hidden_states:
-            outputs = outputs + (all_hidden_states,)
+            outputs = outputs + (all_hidden_states,) # 13, torch.Size([1, 180, 768])
         if self.output_attentions:
             # let the number of heads free (-1) so we can extract attention even after head pruning
             attention_output_shape = input_shape[:-1] + (-1,) + all_attentions[0].shape[-2:]
             all_attentions = tuple(t.view(*attention_output_shape) for t in all_attentions)
             outputs = outputs + (all_attentions,)
 
-        return outputs  # last hidden state, (presents), (all hidden_states), (attentions)
+        return outputs # last hidden state, (presents), (all hidden_states), (attentions)
 
 
 class LM_head_rep(nn.Module):
@@ -619,12 +612,13 @@ class VAEModel(GPT2LMHeadModel):
         else:
             latent_mean, latent_logvar = posterior_mean, posterior_logvar
 
+
         if from_mean:
             z = latent_mean
         else:
             z = self.reparameterize(latent_mean, latent_logvar)
-        assert not torch.isnan(z).any(), 'training get nan z'
 
+        assert not torch.isnan(z).any(), 'training get nan z'
         transformer_outputs = self.transformer(input_ids,
                                                past=past,
                                                attention_mask=attention_mask,
@@ -634,6 +628,7 @@ class VAEModel(GPT2LMHeadModel):
                                                inputs_embeds=inputs_embeds,
                                                representations=z)
         hidden_states = transformer_outputs[0]
+
         lm_logits = self.lm_head(hidden_states)
         if self.add_softmax:
             lm_logits_rep = self.lm_head_rep(z)

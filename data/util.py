@@ -1,20 +1,16 @@
-import random, re, os
+import re, os
 from data.prompt_dataset import *
 from data.plot_dataset import *
 from data.arxiv_dataset import *
 from data.yelp_dataset import *
 import torch
 import torch.utils.data as data
-from torch.utils.data.distributed import DistributedSampler
-from unidecode import unidecode
 import functools
 from rake_nltk import Rake
-import urllib, sys
 import urllib.request
 import json, re
 import numpy as np
-from scipy.spatial.distance import cdist
-from bert_serving.client import BertClient
+
 from tqdm import trange
 from random import shuffle
 
@@ -123,151 +119,6 @@ def extract_keywords(text, r):
     num = min(5, max(2, int(len(text) / 228.0 + 1.5)))
     key = [re.sub(' (\'|\.|\,|\:|\?|\!|;)', '\g<1>', k.strip('\'.,:?!;" ')) for k in r.get_ranked_phrases()[:num]]
     return key
-
-
-# def insert_keywords(tokenizer, data_type):
-#     def f(text_raw_dict):
-#         # 'prompt' in text_raw_dict --> wp dataset; 'title' in text_raw_dict --> wi dataset and other well preprocessed dataset
-#         summary = text_raw_dict['prompt'] if 'prompt' in text_raw_dict else text_raw_dict['title']
-#         story = text_raw_dict['story']
-#
-#         if data_type == 't0':  # x, y, y
-#             if 'prompt' in text_raw_dict:
-#                 pp = get_paragraph(story)
-#                 story = '\n\n'.join(pp)
-#             else:
-#                 pp = story.split('<newline><newline>')
-#                 story = '\n\n'.join(pp)
-#
-#             return summary, story + tokenizer.eos_token, tokenizer.eos_token + story + tokenizer.eos_token
-#         elif data_type == 't1':  # x, x + y, y
-#             if 'prompt' in text_raw_dict:
-#                 pp = get_paragraph(story)
-#                 story = '\n\n'.join(pp)
-#             else:
-#                 pp = story.split('<newline><newline>')
-#                 story = '\n\n'.join(pp)
-#
-#             return summary, summary + tokenizer.eos_token + story + tokenizer.eos_token, tokenizer.eos_token + story + tokenizer.eos_token
-#         elif data_type == 't2':  # x, x + o + y, y, append
-#             if 'title' in text_raw_dict:
-#                 pp = story.split('<newline><newline>')
-#             else:
-#                 pp = get_paragraph(story)
-#
-#             story = '\n\n'.join(pp)
-#
-#             # extract keywords
-#             r = Rake(min_length=1, max_length=4)
-#             keys = [extract_keywords(text, r) for text in pp]
-#             keys_str = [tokenizer.cls_token + tokenizer.sep_token.join(key) + tokenizer.mask_token for key in keys]
-#             story_appended = summary + ''.join(keys_str) + tokenizer.eos_token + '\n\n'.join(pp)
-#             return summary, story_appended + tokenizer.eos_token, tokenizer.eos_token + story + tokenizer.eos_token
-#         elif data_type == 't3':  # x, x + o + y, y, insert
-#             if 'title' in text_raw_dict:
-#                 pp = story.split('<newline><newline>')
-#             else:
-#                 pp = get_paragraph(story)
-#
-#             story = '\n\n'.join(pp)
-#
-#             # extract keywords
-#             r = Rake(min_length=1, max_length=4)
-#             keys = [extract_keywords(text, r) for text in pp]
-#             keys_str = [tokenizer.cls_token + tokenizer.sep_token.join(key) + tokenizer.mask_token for key in keys]
-#             keys_str[0] += tokenizer.eos_token
-#             story_inserted = summary + ''.join([k + pt for k, pt in zip(keys_str, pp)])
-#             return summary, story_inserted + tokenizer.eos_token, tokenizer.eos_token + story + tokenizer.eos_token
-#         elif data_type == 't4':  # x + o, y, y
-#             if 'title' in text_raw_dict:
-#                 pp = story.split('<newline><newline>')
-#             else:
-#                 pp = get_paragraph(story)
-#
-#             story = '\n\n'.join(pp)
-#
-#             # extract keywords
-#             r = Rake(min_length=1, max_length=4)
-#             keys = [extract_keywords(text, r) for text in pp]
-#             keys_str = [tokenizer.cls_token + tokenizer.sep_token.join(key) + tokenizer.mask_token for key in keys]
-#             return summary + ''.join(keys_str), story + tokenizer.eos_token, tokenizer.eos_token + story + tokenizer.eos_token
-#         elif data_type == 't5':  # x + o, x + o + y, y, append
-#             if 'title' in text_raw_dict:
-#                 pp = story.split('<newline><newline>')
-#             else:
-#                 pp = get_paragraph(story)
-#
-#             story = '\n\n'.join(pp)
-#
-#             # extract keywords
-#             r = Rake(min_length=1, max_length=4)
-#             keys = [extract_keywords(text, r) for text in pp]
-#             keys_str = [tokenizer.cls_token + tokenizer.sep_token.join(key) + tokenizer.mask_token for key in keys]
-#             story_appended = summary + ''.join(keys_str) + tokenizer.eos_token + '\n\n'.join(pp)
-#             return summary + ''.join(keys_str), story_appended + tokenizer.eos_token, tokenizer.eos_token + story + tokenizer.eos_token
-#         elif data_type == 't6':  # x + o, x + o + y, y, insert
-#             if 'title' in text_raw_dict:
-#                 pp = story.split('<newline><newline>')
-#             else:
-#                 pp = get_paragraph(story)
-#
-#             story = '\n\n'.join(pp)
-#
-#             # extract keywords
-#             r = Rake(min_length=1, max_length=4)
-#             keys = [extract_keywords(text, r) for text in pp]
-#             keys_str = [tokenizer.cls_token + tokenizer.sep_token.join(key) + tokenizer.mask_token for key in keys]
-#             keys_str[0] += tokenizer.eos_token
-#             story_inserted = summary + ''.join([k + pt for k, pt in zip(keys_str, pp)])
-#             return summary + ''.join(keys_str), story_inserted + tokenizer.eos_token, tokenizer.eos_token + story + tokenizer.eos_token
-#         elif data_type == 't7':  # x + o, x + o + y, y, append, extend
-#             if 'title' in text_raw_dict:
-#                 pp = story.split('<newline><newline>')
-#             else:
-#                 pp = get_paragraph(story)
-#
-#             story = '\n\n'.join(pp)
-#
-#             # extract keywords
-#             r = Rake(min_length=1, max_length=4)
-#             keys = [extract_keywords(text, r) for text in pp]
-#             keys_str = [tokenizer.cls_token + tokenizer.sep_token.join(key) + tokenizer.mask_token for key in keys]
-#             keys_str[0] += tokenizer.eos_token
-#
-#             extended_res = []
-#             for i in range(len(pp)):
-#                 k_i, p_i = keys_str[:i], pp[:i]
-#                 out_i = summary + ''.join(k_i)
-#                 story_appended_i = summary + ''.join(k_i) + tokenizer.eos_token + '\n\n'.join(p_i) + tokenizer.eos_token
-#                 story_i = tokenizer.eos_token + '\n\n'.join(p_i) + tokenizer.eos_token
-#                 extended_res.append((out_i, story_appended_i, story_i))
-#             return extended_res
-#         elif data_type == 't8':  # x + o, x + o + y, y, insert, extend
-#             if 'title' in text_raw_dict:
-#                 pp = story.split('<newline><newline>')
-#             else:
-#                 pp = get_paragraph(story)
-#
-#             story = '\n\n'.join(pp)
-#
-#             # extract keywords
-#             r = Rake(min_length=1, max_length=4)
-#             keys = [extract_keywords(text, r) for text in pp]
-#             keys_str = [tokenizer.cls_token + tokenizer.sep_token.join(key) + tokenizer.mask_token for key in keys]
-#             keys_str[0] += tokenizer.eos_token
-#
-#             extended_res = []
-#             for i in range(len(pp)):
-#                 k_i, p_i = keys_str[:i], pp[:i]
-#                 out_i = summary + ''.join(k_i)
-#                 story_inserted_i = summary + ''.join([k + pt for k, pt in zip(k_i, p_i)]) + tokenizer.eos_token
-#                 story_i = tokenizer.eos_token + '\n\n'.join(p_i) + tokenizer.eos_token
-#                 extended_res.append((out_i, story_inserted_i, story_i))
-#             return extended_res
-#         else:
-#             raise Exception('Data type not implemented.')
-#
-#     return f
 
 
 def insert_keywords(tokenizer, data_type):
@@ -444,228 +295,83 @@ def prepare_dataset(data_dir, dataset_name, tokenizer, train_bsz, train_seq_len,
     # data_dir, dataset_name, tokenizer, train_bsz, train_seq_len, val_bsz, val_seq_len, num_workers = args.data_dir, args.dataset, tokenizer, batch_schedule[cur_b_schedule][0], batch_schedule[cur_b_schedule][1], batch_schedule[-1][0], batch_schedule[-1][1], args.workers
 
     loaders = []
-    if dataset_name == 'wp':
-        train_collate_fn = collate_fn
-        val_collate_fn = collate_fn
-        test_collate_fn = collate_fn
+    
+    train_collate_fn = collate_fn
+    val_collate_fn = collate_fn
+    test_collate_fn = collate_fn
 
-        if make_train:
-            train_preproc = Preprocessor(tokenizer, train_seq_len, data_type)
-            d_train = PromptDataset(
-                os.path.join(data_dir, 'writingPrompts/train.wp_source'),
-                os.path.join(data_dir, 'writingPrompts/train.wp_target'),
-                train_preproc)
-            if data_type == 't7' or data_type == 't8':
-                d_train = [t for lt in d_train for t in lt]
-            print('Train dataset size', len(d_train))
-            loaders.append(data.DataLoader(d_train,
-                                           # sampler=DistributedSampler(d_train) if distributed else None,
-                                           batch_size=train_bsz,
-                                           pin_memory=True,
-                                           drop_last=True,
-                                           num_workers=num_workers,
-                                           collate_fn=train_collate_fn) if d_train else None)
-        if make_val:
-            val_preproc = Preprocessor(tokenizer, val_seq_len, data_type)
-            d_val = PromptDataset(
-                os.path.join(data_dir, 'writingPrompts/valid.wp_source'),
-                os.path.join(data_dir, 'writingPrompts/valid.wp_target'),
-                val_preproc)
-            if data_type == 't7' or data_type == 't8':
-                d_val = [t for lt in d_val for t in lt]
-            print('Val dataset size', len(d_val))
-            loaders.append(data.DataLoader(d_val,
-                                           # sampler=DistributedSampler(d_val),
-                                           batch_size=val_bsz,
-                                           pin_memory=True,
-                                           drop_last=True,
-                                           num_workers=num_workers,
-                                           collate_fn=val_collate_fn) if d_val else None)
-        if make_test:
-            test_preproc = Preprocessor(tokenizer, test_seq_len, data_type)
-            d_test = PromptDataset(
-                os.path.join(data_dir, 'writingPrompts/test.wp_source'),
-                os.path.join(data_dir, 'writingPrompts/test.wp_target'),
-                test_preproc)
-            if data_type == 't7' or data_type == 't8':
-                d_test = [t for lt in d_test for t in lt]
-            print('Test dataset size', len(d_test))
-            loaders.append(data.DataLoader(d_test,
-                                           # sampler=DistributedSampler(d_val),
-                                           batch_size=test_bsz,
-                                           pin_memory=True,
-                                           drop_last=True,
-                                           num_workers=num_workers,
-                                           collate_fn=test_collate_fn) if d_test else None)
-    elif dataset_name == 'wi':
-        train_collate_fn = collate_fn
-        val_collate_fn = collate_fn
-        test_collate_fn = collate_fn
+    print('Loading arxiv dataset...')
+    data_abs = os.path.join(data_dir, 'arxiv/artificial intelligence_10047_15000_15_abs.txt')
+    data_titles = os.path.join(data_dir, 'arxiv/artificial intelligence_10047_15000_15_title.txt')
+    with open(data_abs, errors='ignore') as fp:
+        abs = fp.readlines()
+    with open(data_titles, errors='ignore') as ft:
+        titles = ft.readlines()
+    assert len(titles) == len(abs)
 
-        print('Loading wikiplot dataset...')
-        data_plots = os.path.join(data_dir, 'wikiPlots/plots_paragraph')
-        data_titles = os.path.join(data_dir, 'wikiPlots/titles')
-        with open(data_plots, errors='ignore') as fp:
-            plots = fp.readlines()
-        with open(data_titles, errors='ignore') as ft:
-            titles = ft.readlines()
+    ai_data = [('ai', t.strip(), p.strip()) for t, p in zip(titles, abs) if t.strip() != '' and p.strip() != '']
 
-        texts = [(t, p) for t, p in zip(titles, plots) if t.strip() != '' and p.strip() != '']
-        print('Done.')
-        train_text = texts[:int(len(texts) * 0.9)]
-        val_text = texts[int(len(texts) * 0.9):int(len(texts) * 0.95)]
-        test_text = texts[int(len(texts) * 0.95):]
+    data_abs = os.path.join(data_dir, 'arxiv/computer vision_14582_15000_15_abs.txt')
+    data_titles = os.path.join(data_dir, 'arxiv/computer vision_14582_15000_15_title.txt')
+    with open(data_abs, errors='ignore') as fp:
+        abs = fp.readlines()
+    with open(data_titles, errors='ignore') as ft:
+        titles = ft.readlines()
+    assert len(titles) == len(abs)
+    cv_data = [('cv', t.strip(), p.strip()) for t, p in zip(titles, abs) if t.strip() != '' and p.strip() != '']
 
-        if make_train:
-            train_preproc = Preprocessor(tokenizer, train_seq_len, data_type)
-            d_train = PlotDataset(train_text, train_preproc)
-            if data_type == 't7' or data_type == 't8':
-                d_train = [t for lt in d_train for t in lt]
-            print('Train dataset size', len(d_train))
-            loaders.append(data.DataLoader(d_train,
-                                           # sampler=DistributedSampler(d_train) if distributed else None,
-                                           batch_size=train_bsz,
-                                           pin_memory=True,
-                                           drop_last=True,
-                                           num_workers=num_workers,
-                                           collate_fn=train_collate_fn) if d_train else None)
-        if make_val:
-            val_preproc = Preprocessor(tokenizer, val_seq_len, data_type)
-            d_val = PlotDataset(val_text, val_preproc)
-            if data_type == 't7' or data_type == 't8':
-                d_val = [t for lt in d_val for t in lt]
-            print('Val dataset size', len(d_val))
-            loaders.append(data.DataLoader(d_val,
-                                           # sampler=DistributedSampler(d_val),
-                                           batch_size=val_bsz,
-                                           pin_memory=True,
-                                           drop_last=True,
-                                           num_workers=num_workers,
-                                           collate_fn=val_collate_fn) if d_val else None)
-        if make_test:
-            test_preproc = Preprocessor(tokenizer, test_seq_len, data_type)
-            d_test = PlotDataset(test_text, test_preproc)
-            if data_type == 't7' or data_type == 't8':
-                d_test = [t for lt in d_test for t in lt]
-            print('Test dataset size', len(d_test))
-            loaders.append(data.DataLoader(d_test,
-                                           # sampler=DistributedSampler(d_val),
-                                           batch_size=test_bsz,
-                                           pin_memory=True,
-                                           drop_last=True,
-                                           num_workers=num_workers,
-                                           collate_fn=test_collate_fn) if d_test else None)
-    elif dataset_name == 'ax':
-        train_collate_fn = collate_fn
-        val_collate_fn = collate_fn
-        test_collate_fn = collate_fn
+    data_abs = os.path.join(data_dir, 'arxiv/language generation_14514_15000_15_abs.txt')
+    data_titles = os.path.join(data_dir, 'arxiv/language generation_14514_15000_15_title.txt')
+    with open(data_abs, errors='ignore') as fp:
+        abs = fp.readlines()
+    with open(data_titles, errors='ignore') as ft:
+        titles = ft.readlines()
+    assert len(titles) == len(abs)
+    lg_data = [('lg', t.strip(), p.strip()) for t, p in zip(titles, abs) if t.strip() != '' and p.strip() != '']
 
-        print('Loading arxiv dataset...')
-        data_abs = os.path.join(data_dir, 'arxiv/artificial intelligence_10047_15000_15_abs.txt')
-        data_titles = os.path.join(data_dir, 'arxiv/artificial intelligence_10047_15000_15_title.txt')
-        with open(data_abs, errors='ignore') as fp:
-            abs = fp.readlines()
-        with open(data_titles, errors='ignore') as ft:
-            titles = ft.readlines()
-        assert len(titles) == len(abs)
-        ai_data = [('ai', t.strip(), p.strip()) for t, p in zip(titles, abs) if t.strip() != '' and p.strip() != '']
+    texts = ai_data + cv_data + lg_data
+    shuffle(texts)
+    # type, title, story
 
-        data_abs = os.path.join(data_dir, 'arxiv/computer vision_14582_15000_15_abs.txt')
-        data_titles = os.path.join(data_dir, 'arxiv/computer vision_14582_15000_15_title.txt')
-        with open(data_abs, errors='ignore') as fp:
-            abs = fp.readlines()
-        with open(data_titles, errors='ignore') as ft:
-            titles = ft.readlines()
-        assert len(titles) == len(abs)
-        cv_data = [('cv', t.strip(), p.strip()) for t, p in zip(titles, abs) if t.strip() != '' and p.strip() != '']
+    print('Done.')
+    train_text = texts[:int(len(texts) * 0.9)]
+    val_text = texts[int(len(texts) * 0.9):int(len(texts) * 0.95)]
+    test_text = texts[int(len(texts) * 0.95):]
 
-        data_abs = os.path.join(data_dir, 'arxiv/language generation_14514_15000_15_abs.txt')
-        data_titles = os.path.join(data_dir, 'arxiv/language generation_14514_15000_15_title.txt')
-        with open(data_abs, errors='ignore') as fp:
-            abs = fp.readlines()
-        with open(data_titles, errors='ignore') as ft:
-            titles = ft.readlines()
-        assert len(titles) == len(abs)
-        lg_data = [('lg', t.strip(), p.strip()) for t, p in zip(titles, abs) if t.strip() != '' and p.strip() != '']
+    if make_train:
+        train_preproc = Preprocessor(tokenizer, train_seq_len, data_type)
+        d_train = ArxivDataset(train_text, train_preproc)
+        print('Train dataset size', len(d_train))
+        loaders.append(data.DataLoader(d_train,
+                                        # sampler=DistributedSampler(d_train) if distributed else None,
+                                        batch_size=train_bsz,
+                                        pin_memory=True,
+                                        drop_last=True,
+                                        num_workers=num_workers,
+                                        collate_fn=train_collate_fn) if d_train else None)
+    if make_val:
+        val_preproc = Preprocessor(tokenizer, val_seq_len, data_type)
+        d_val = ArxivDataset(val_text, val_preproc)
+        print('Val dataset size', len(d_val))
+        loaders.append(data.DataLoader(d_val,
+                                        # sampler=DistributedSampler(d_val),
+                                        batch_size=val_bsz,
+                                        pin_memory=True,
+                                        drop_last=True,
+                                        num_workers=num_workers,
+                                        collate_fn=val_collate_fn) if d_val else None)
+    if make_test:
+        test_preproc = Preprocessor(tokenizer, test_seq_len, data_type)
+        d_test = ArxivDataset(test_text, test_preproc)
+        print('Test dataset size', len(d_test))
+        loaders.append(data.DataLoader(d_test,
+                                        # sampler=DistributedSampler(d_val),
+                                        batch_size=test_bsz,
+                                        pin_memory=True,
+                                        drop_last=True,
+                                        num_workers=num_workers,
+                                        collate_fn=test_collate_fn) if d_test else None)
 
-        texts = ai_data + cv_data + lg_data
-        shuffle(texts)
-        print('Done.')
-        train_text = texts[:int(len(texts) * 0.9)]
-        val_text = texts[int(len(texts) * 0.9):int(len(texts) * 0.95)]
-        test_text = texts[int(len(texts) * 0.95):]
-
-        if make_train:
-            train_preproc = Preprocessor(tokenizer, train_seq_len, data_type)
-            d_train = ArxivDataset(train_text, train_preproc)
-            print('Train dataset size', len(d_train))
-            loaders.append(data.DataLoader(d_train,
-                                           # sampler=DistributedSampler(d_train) if distributed else None,
-                                           batch_size=train_bsz,
-                                           pin_memory=True,
-                                           drop_last=True,
-                                           num_workers=num_workers,
-                                           collate_fn=train_collate_fn) if d_train else None)
-        if make_val:
-            val_preproc = Preprocessor(tokenizer, val_seq_len, data_type)
-            d_val = ArxivDataset(val_text, val_preproc)
-            print('Val dataset size', len(d_val))
-            loaders.append(data.DataLoader(d_val,
-                                           # sampler=DistributedSampler(d_val),
-                                           batch_size=val_bsz,
-                                           pin_memory=True,
-                                           drop_last=True,
-                                           num_workers=num_workers,
-                                           collate_fn=val_collate_fn) if d_val else None)
-        if make_test:
-            test_preproc = Preprocessor(tokenizer, test_seq_len, data_type)
-            d_test = ArxivDataset(test_text, test_preproc)
-            print('Test dataset size', len(d_test))
-            loaders.append(data.DataLoader(d_test,
-                                           # sampler=DistributedSampler(d_val),
-                                           batch_size=test_bsz,
-                                           pin_memory=True,
-                                           drop_last=True,
-                                           num_workers=num_workers,
-                                           collate_fn=test_collate_fn) if d_test else None)
-    elif dataset_name == 'yp':
-        train_collate_fn = collate_fn
-        val_collate_fn = collate_fn
-        test_collate_fn = collate_fn
-
-        if make_train:
-            train_preproc = Preprocessor(tokenizer, train_seq_len, data_type)
-            d_train = YelpDataset(os.path.join(data_dir, 'yelp/yelp.train.txt'), train_preproc)
-            print('Train dataset size', len(d_train))
-            loaders.append(data.DataLoader(d_train,
-                                           # sampler=DistributedSampler(d_train) if distributed else None,
-                                           batch_size=train_bsz,
-                                           pin_memory=True,
-                                           drop_last=True,
-                                           num_workers=num_workers,
-                                           collate_fn=train_collate_fn) if d_train else None)
-        if make_val:
-            val_preproc = Preprocessor(tokenizer, val_seq_len, data_type)
-            d_val = YelpDataset(os.path.join(data_dir, 'yelp/yelp.valid.txt'), val_preproc)
-            print('Val dataset size', len(d_val))
-            loaders.append(data.DataLoader(d_val,
-                                           # sampler=DistributedSampler(d_val),
-                                           batch_size=val_bsz,
-                                           pin_memory=True,
-                                           drop_last=True,
-                                           num_workers=num_workers,
-                                           collate_fn=val_collate_fn) if d_val else None)
-        if make_test:
-            test_preproc = Preprocessor(tokenizer, test_seq_len, data_type)
-            d_test = YelpDataset(os.path.join(data_dir, 'yelp/yelp.test.txt'), test_preproc)
-            print('Test dataset size', len(d_test))
-            loaders.append(data.DataLoader(d_test,
-                                           # sampler=DistributedSampler(d_val),
-                                           batch_size=test_bsz,
-                                           pin_memory=True,
-                                           drop_last=True,
-                                           num_workers=num_workers,
-                                           collate_fn=test_collate_fn) if d_test else None)
     else:
         raise Exception('Invalid dataset')
 

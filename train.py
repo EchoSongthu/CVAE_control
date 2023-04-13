@@ -12,6 +12,7 @@ import copy
 from data.util import *
 from util import *
 from model import *
+from PID import PIDControl
 
 from collections import Counter
 from nltk.translate.bleu_score import sentence_bleu
@@ -194,6 +195,7 @@ def main():
         parser.add_argument('--data-dir', type=str, default='data')
         parser.add_argument('--out-dir', type=str, default='out')
         parser.add_argument('--load', type=str, help='path to load model from') # , default='out/test/'
+
         parser.add_argument('--workers', default=1, type=int, metavar='N',
                             help='number of data loading workers')
         # use GPU
@@ -208,13 +210,13 @@ def main():
         parser.add_argument('--beta_warmup', type=int, default=50000)
         # cyc_vae parameters
         parser.add_argument('--cycle', type=int, default=101640)
-
         parser.add_argument('--add_input', action="store_true")
         parser.add_argument('--add_attn', action="store_true")
         parser.add_argument('--add_softmax', action="store_true")
         parser.add_argument('--attn_proj_vary', action="store_true")
         parser.add_argument('--learn_prior', action="store_true")
 
+        # dir
         parser.add_argument('--split_data_dir', default="/data/zmy/dataset/mobile/split_label", type=str)
         parser.add_argument('--out_dir', default="./results/", type=str)
         parser.add_argument('--frequency_dir', default="/data/zmy/dataset/mobile/frequency.pkl", type=str)
@@ -225,6 +227,12 @@ def main():
         parser.add_argument('--control', default='age', type=str, help="")
         parser.add_argument('--dataset', default='mobile', type=str, help="")
 
+        # pid
+        parser.add_argument('--model_name', type=str, default='pid')
+        parser.add_argument('--exp_kl', type=float, default=0, help="desired KL divergence.")
+        parser.add_argument('--Kp', type=float, default=0.01, help="Kp for pid.")
+        parser.add_argument('--Ki', type=float, default=-0.0001, help="Kp for pid.")
+        
         args = parser.parse_args()
     
     args.learn_prior = True
@@ -265,9 +273,11 @@ def main():
         VAE.encoder_prior.averageSelfAttention.attention_weights = VAE.encoder.averageSelfAttention.attention_weights
     print('VAE_params:', num_params(VAE))  # 286694400
 
+    # load 模型
+    # args.load = f'/data/zmy/CVAE_control/out/mobile_{args.control}_exp_1'
     if args.load:
         print('Loading model weights...')
-        state = torch.load(os.path.join(args.load, 'model_latest.pt'))  # , map_location='cpu' model_latest.pt
+        state = torch.load(os.path.join(args.load, 'model_0040000.pt'))  # , map_location='cpu' model_latest.pt
         if 'module' in list(state.keys())[0]:  # model_path is data parallel model with attr 'module'
             state_copy = copy.copy(state)
             keys = state_copy.keys()
@@ -286,6 +296,13 @@ def main():
 
         if not any([True if n in name else False for n in new_pars]):
            parameter.requires_grad = False
+
+    # PID
+    pid = PIDControl()
+    kl_weight = 0.0
+    Kp = args.Kp
+    Ki = args.Ki
+    exp_kl = args.exp_kl
 
     print('Setup data...')
     # Batch and sequence length schedule
@@ -539,6 +556,8 @@ def main():
                 output = train_step(device, VAE, optimizer, x_mask, x_tokens, y_mask, y_tokens,
                                     input_tokens, target_tokens, mask, loss_fn, beta, args.model_type)
                 loss, ce_loss, kl_loss = output[-1]
+
+                # kl_weight = pid.pid(exp_kl, kl_loss, Kp, Ki)  TOOD
 
                 lr = scheduler.get_last_lr()[0]
                 # Log to Tensorboard
